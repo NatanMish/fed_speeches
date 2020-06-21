@@ -1,0 +1,301 @@
+---
+title: "39186_MY459_Final_Assignment"
+author: '39186'
+date: "10 4 2020"
+output: html_document
+---
+
+**Load corpus**
+
+```{r}
+library(quanteda)
+df <- read.csv('fed_speeches_1996_2020.csv')
+df$text <- as.character(df$text)
+corpus <- corpus(df,text_field = 'text')
+```
+
+**EDA**
+```{r}
+library(ggplot2)
+ggplot(df, aes(x=text_len)) + geom_histogram() + labs( 
+         x="Length (words)", y = "Count of documents")
+```
+
+```{r}
+agg_counts <- aggregate(df,list(df$speaker,df$year),length)
+agg_counts <- agg_counts[order(agg_counts$link,decreasing = TRUE),c('Group.1','Group.2','title')]
+agg_counts <- head(agg_counts,30)
+colnames(agg_counts) <- c('speaker','year','amount')
+
+ggplot(data=agg_counts, aes(x=year, y=amount, fill=speaker)) +
+  geom_bar(stat="identity") + labs( 
+         x="Year of speech", y = "Count of documents")
+```
+
+```{r}
+locations <- data.frame(table(df$location))
+locations <- locations[order(locations$Freq,decreasing = TRUE),]
+locations <- head(locations,10)
+colnames(locations) <- c('location','amount')
+
+bp<- ggplot(locations, aes(x="", y=amount, fill=location))+
+geom_bar(width = 1, stat = "identity")
+pie <- bp + coord_polar("y", start=0)
+pie + scale_fill_brewer(palette="Dark2") + labs(title="Top speeches locations")
+```
+
+```{r}
+dfm <- dfm(corpus,remove = stopwords('english'), remove_punct = TRUE,remove_numbers = TRUE)
+textplot_wordcloud(dfm,color = rev(RColorBrewer::brewer.pal(10, "RdBu")))
+```
+
+**dictionaries**
+
+```{r}
+library(quanteda.dictionaries)
+data(data_dictionary_LaverGarry)
+dict_dfm <- dfm(corpus,
+               dictionary = data_dictionary_LaverGarry, verbose = TRUE)
+dict_dfm <- convert(dfm_weight(dict_dfm,scheme='PROP'),to='data.frame')
+```
+
+```{r}
+dict_df <- data.frame(dict_dfm)
+dict_df <- cbind(dict_df,df$speaker,df$year)
+
+more_state <- aggregate(ECONOMY..STATE. ~ `df$speaker`,data = dict_df,FUN = median)
+head(more_state[order(more_state$ECONOMY..STATE.,decreasing = TRUE),])
+```
+
+```{r}
+less_state <- aggregate(ECONOMY..STATE..2 ~ `df$speaker`,data = dict_df,FUN = median)
+(less_state[order(less_state$ECONOMY..STATE..2,decreasing = TRUE),])
+```
+
+
+```{r}
+inst_cons <- aggregate(INSTITUTIONS.CONSERVATIVE ~ `df$speaker`,data = dict_df,FUN = median)
+tail(inst_cons[order(inst_cons$INSTITUTIONS.CONSERVATIVE,decreasing = TRUE),])
+```
+
+**Randel Quarels was a Trump nomination. Highly anti-regulatory.**
+https://www.nytimes.com/2019/11/29/business/economy/bank-regulations-fed.html
+
+```{r}
+inst_rad <- aggregate(INSTITUTIONS.RADICAL ~ `df$speaker`,data = dict_df,FUN = median)
+head(inst_rad[order(inst_rad$INSTITUTIONS.RADICAL,decreasing = TRUE),])
+```
+
+```{r}
+more_state <- aggregate(ECONOMY..STATE. ~ `df$year`,data = dict_df,FUN = median)
+head(more_state[order(more_state$ECONOMY..STATE.,decreasing = TRUE),])
+```
+
+```{r}
+less_state <- aggregate(ECONOMY..STATE..2 ~ `df$year`,data = dict_df,FUN = median)
+tail(less_state[order(less_state$ECONOMY..STATE..2,decreasing = TRUE),])
+```
+
+
+```{r}
+inst_cons <- aggregate(INSTITUTIONS.CONSERVATIVE ~ `df$year`,data = dict_df,FUN = median)
+tail(inst_cons[order(inst_cons$INSTITUTIONS.CONSERVATIVE,decreasing = TRUE),])
+```
+
+**We can see that by 2020 the institutions radical rhetoric increased.**
+
+```{r}
+inst_rad <- aggregate(INSTITUTIONS.RADICAL ~ `df$year`,data = dict_df,FUN = median)
+tail(inst_rad[order(inst_rad$INSTITUTIONS.RADICAL,decreasing = TRUE),])
+```
+
+```{r}
+cong <- read.csv("congress-tweets.csv", stringsAsFactors=F)
+df_collapsed <- aggregate(df$text, list(df$speaker), paste, collapse=" ")
+colnames(df_collapsed) <- c('screen_name','text')
+corpus <- rbind(cong[,c('screen_name','text')],df_collapsed)
+row.names(corpus) <- corpus$screen_name
+corpus <- corpus(corpus)
+
+dfm <- dfm(corpus,remove = stopwords('english'), remove_punct = TRUE,remove_numbers = TRUE, remove_url=TRUE,stem=TRUE)
+dfm <- dfm_tfidf(dfm)
+
+ws <- textmodel_wordscores(dfm, c(cong$idealPoint, rep(NA, 32)))
+predictions <- predict(ws,rescaling='lbg')
+results <- data.frame(df_collapsed$screen_name,predictions[101:132])
+colnames(results) <- c('fed_speaker','ideology')
+results[order(results$ideology),]
+```
+
+**We can see again quite clearly that Randal Quarels is very politicised. A surprising finding is that Jerome Powell gets a negative result.**
+
+```{r}
+df_collapsed <- aggregate(df$text, list(df$year), paste, collapse=" ")
+colnames(df_collapsed) <- c('screen_name','text')
+corpus <- rbind(cong[,c('screen_name','text')],df_collapsed)
+row.names(corpus) <- corpus$screen_name
+corpus <- corpus(corpus)
+
+dfm <- dfm(corpus,remove = stopwords('english'), remove_punct = TRUE,remove_numbers = TRUE, remove_url=TRUE,stem=TRUE)
+dfm <- dfm_trim(dfm,min_termfreq = 20)
+dfm <- dfm_tfidf(dfm)
+
+ws <- textmodel_wordscores(dfm, c(cong$idealPoint, rep(NA, 25)))
+predictions <- predict(ws,rescaling='lbg')
+results <- data.frame(df_collapsed$screen_name,predictions[101:125])
+colnames(results) <- c('year','ideology')
+# plot(results$year,results$ideology)
+
+# model <- glm(ideology ~ year,data=results)
+# summary(model)
+
+#R^2 is:
+# with(summary(model), 1 - deviance/null.deviance)
+colnames(results) <- c('x','y')
+
+lm_eqn <- function(df){
+    m <- lm(y ~ x, df);
+    eq <- substitute(~~italic(r)^2~"="~r2, 
+         list(r2 = format(summary(m)$r.squared, digits = 3)))
+    as.character(as.expression(eq));
+}
+p <- ggplot(data = results, aes(x = x, y = y)) +
+            geom_smooth(method = "lm", se=FALSE, color="black", formula = y ~ x) +
+            geom_point()
+p1 <- p + geom_text(x = 2000, y = 0.04, label = lm_eqn(results), parse = TRUE) + labs( 
+         x="Year", y = "Ideology score")
+p1
+```
+
+**The speeches ideologies are becoming closer to Republican congressmen throughout the years.**
+
+**Sentiment analysis:**
+
+```{r}
+corpus <- corpus(df,text_field = 'text')
+sent_dfm <- dfm(corpus, dictionary = data_dictionary_LSD2015)
+sent_df <- convert(sent_dfm, to='data.frame')
+sent_df <- cbind(sent_df,df$speaker,df$year,df$text_len)
+sent_df$sentiment <- (sent_df$positive-sent_df$negative)/df$text_len
+sent_df$positive_ratio <- (sent_df$positive)/df$text_len
+sent_df$negative_ratio <- (sent_df$negative)/df$text_len
+
+aggregate(positive_ratio ~ df$year,sent_df,median)
+aggregate(positive_ratio ~ df$speaker,sent_df,median)
+
+plot(aggregate(negative_ratio ~ df$year,sent_df,median))
+aggregate(negative_ratio ~ df$speaker,sent_df,median)
+
+aggregate(sentiment ~ df$year,sent_df,median)
+aggregate(sentiment ~ df$speaker,sent_df,median)
+```
+
+**19-20 Were much more positive than years before that. Also Yellen was the most nuetral, while Powell was among the most positive ones.**
+
+**Compare to s.o.t.u speeches**
+```{r}
+
+```
+
+**Clustering by rhetorics**
+```{r}
+corpus <- corpus(df,text_field = 'text')
+mdfm <- dfm(corpus, verbose=TRUE, remove_punct=TRUE,
+            remove_numbers=TRUE, remove=stopwords("english"),groups=df$speaker)
+cdfm <- dfm_weight(dfm_trim(mdfm, min_docfreq = 5, verbose=TRUE), "prop")
+kc <- kmeans(cdfm, centers=4)
+table(kc$cluster)
+(docvars(mdfm)[kc$cluster==1,])
+(docvars(mdfm)[kc$cluster==2,])
+(docvars(mdfm)[kc$cluster==3,])
+(docvars(mdfm)[kc$cluster==4,])
+```
+
+**Hirearchical clustering:**
+
+```{r}
+mdfm <- dfm(corpus, verbose=TRUE, remove_punct=TRUE,
+            remove_numbers=TRUE, remove=stopwords("english"),groups=df$speaker)
+# cdfm <- dfm_weight(dfm_trim(mdfm, min_docfreq = 5, verbose=TRUE), "prop")
+cdfm <- dfm_tfidf(mdfm)
+pres_dist_mat <- textstat_dist(cdfm, method = "euclidean")
+# hiarchical clustering the distance object
+pres_cluster <- hclust(as.dist(pres_dist_mat))
+
+# label with document names
+pres_cluster$labels <- docnames(cdfm)
+
+hcd <- as.dendrogram(pres_cluster)
+
+library("ggplot2")
+library("ggdendro")
+
+ggdendrogram(hcd, rotate = TRUE, theme_dendro = FALSE)
+```
+
+**CA**
+
+```{r}
+mdfm <- dfm(corpus, verbose=TRUE, remove_punct=TRUE,
+            remove_numbers=TRUE, remove=stopwords("english"),groups=df$speaker)
+mdfm <- dfm_trim(mdfm,min_termfreq = 20)
+mdfm <- dfm_weight(mdfm,scheme = 'prop')
+caFit <- textmodel_ca(mdfm, nd=1)
+words <- data.frame(caFit$colcoord)
+words$words <- rownames(words)
+head(words[order(words$Dim1,decreasing=FALSE),],20)
+
+textplot_scale1d(caFit)
+```
+
+**Topic modelling**
+
+```{r}
+mdfm <- dfm(corpus, verbose=TRUE, remove_punct=TRUE, stem=TRUE,
+            remove_numbers=TRUE, remove=stopwords("english"))
+mdfm <- dfm_trim(mdfm,min_termfreq = 20)
+library(topicmodels)
+
+# Run LDA model with K topics
+K <- 10
+tw_lda <- LDA(mdfm,
+              k = K,
+              method = "Gibbs",
+              control = list(verbose = 200L,
+                             seed = 1234,
+                             burnin = 100,
+                             iter = 900))
+
+top_words <- get_terms(tw_lda, 15)
+for (i in 1:10) {
+  message(paste("Topic", i))
+  print(paste(top_words[,i], collapse=", "))}
+```
+
+**get nouns**
+
+prior was done in Python
+```{r}
+corpus <- corpus(df,text_field = 'text_nouns')
+mdfm <- dfm(corpus, verbose=TRUE, remove_punct=TRUE, stem=TRUE,
+            remove_numbers=TRUE, remove=stopwords("english"))
+mdfm <- dfm_tfidf(mdfm)
+
+tstat_freq <- textstat_frequency(as.dfm(as.matrix(mdfm)), n = 15,groups=df$speaker)
+write.csv(tstat_freq[tstat_freq$group == 'Chair Janet L. Yellen'],"Yellen.csv", row.names = FALSE)
+write.csv(tstat_freq[tstat_freq$group == 'Chairman Alan Greenspan'],"Greenspan.csv", row.names = FALSE)
+write.csv(tstat_freq[tstat_freq$group == 'Chairman Ben S. Bernanke'],"Bernanke.csv", row.names = FALSE)
+write.csv(tstat_freq[tstat_freq$group == 'Chairman Jerome H. Powell'],"Powell.csv", row.names = FALSE)
+tstat_freq
+```
+
+```{r}
+corpus <- corpus(df,text_field = 'text_nouns')
+mdfm <- dfm(corpus, verbose=TRUE, remove_punct=TRUE,
+            remove_numbers=TRUE, remove=stopwords("english"))
+mdfm <- dfm_tfidf(mdfm)
+
+tstat_freq <- textstat_frequency(as.dfm(as.matrix(mdfm)), n = 15,groups=df$year)
+tstat_freq
+```
+
